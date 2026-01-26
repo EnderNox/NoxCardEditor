@@ -1,11 +1,11 @@
-# ⚔️ Nox CR Creator
+# ⚔️ Nox Card Editor
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue?style=for-the-badge&logo=python)
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-green?style=for-the-badge&logo=qt)
 ![Status](https://img.shields.io/badge/Status-Active-success?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-orange?style=for-the-badge)
 
-**Nox CR Creator** is a comprehensive, all-in-one tool designed for **Clash Royale Private Server** developers. It simplifies the process of creating, editing, and managing game assets by automatically linking logic files, spell definitions, and localization texts.
+**Nox Card Editor** is a comprehensive, all-in-one tool designed for **Clash Royale Private Server** developers. It simplifies the process of creating, editing, and managing game assets by automatically linking logic files, spell definitions, and localization texts.
 
 No more manual editing of misaligned CSV lines or broken TIDs!
 
@@ -23,13 +23,9 @@ No more manual editing of misaligned CSV lines or broken TIDs!
     * High-quality smooth scaling.
 * **💾 Safe CSV Saving**:
     * Handles Supercell's specific CSV format (quoting strings vs integers).
-    * Prevents server crashes due to malformatted data (handling of `NaN`, empty booleans, etc.).
+    * Prevents server crashes due to malformatted data (handling empty booleans, etc.).
 * **🗑️ Clean Removal**: One-click button to remove a card from all linked CSV files simultaneously.
 * **🌍 Multilingual Support**: Manage card names and descriptions for all supported languages (EN, FR, DE, etc.).
-
----
-
-## 📸 Screenshots
 
 ---
 
@@ -43,8 +39,8 @@ No more manual editing of misaligned CSV lines or broken TIDs!
 
 1.  **Clone the repository**
     ```bash
-    git clone [https://github.com/YourUsername/NoxCRCreator.git](https://github.com/YourUsername/NoxCRCreator.git)
-    cd NoxCRCreator
+    git clone https://github.com/EnderNox/NoxCardEditor
+    cd NoxCardEditor
     ```
 
 2.  **Install dependencies**
@@ -56,7 +52,7 @@ No more manual editing of misaligned CSV lines or broken TIDs!
     Create a folder named `csv` in the root directory and place your server files there. The structure **must** look like this:
 
     ```text
-    NoxCRCreator/
+    NoxCardEditor/
     ├── NoxCardEditor.py
     ├── README.md
     └── csv/                 <-- Your server files go here
@@ -94,18 +90,6 @@ No more manual editing of misaligned CSV lines or broken TIDs!
     * Resize the **Yellow Box** (it locks to the correct aspect ratio).
     * Click **Export Icon**.
 5.  **Save**: Click **💾 Save All CSVs** to write changes to disk.
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1.  Fork the project
-2.  Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3.  Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4.  Push to the Branch (`git push origin feature/AmazingFeature`)
-5.  Open a Pull Request
 
 ---
 
