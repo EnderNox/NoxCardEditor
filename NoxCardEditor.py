@@ -11,7 +11,7 @@ from PySide6.QtCore import Qt, QRectF
 from PySide6.QtGui import QPixmap, QImage, QPainter, QPen, QColor, QWheelEvent, QBrush, QFont
 from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsItem
 
-# --- CROPPER IMAGE (UNCHANGED) ---
+# --- CROPPER IMAGE (Inchangé) ---
 class ResizableRect(QGraphicsRectItem):
     def __init__(self, x, y, w, h):
         super().__init__(x, y, w, h)
@@ -95,42 +95,46 @@ class ImageCropper(QGraphicsView):
         self.selection_rect.setVisible(True)
         return output
 
-# --- ADD CARD DIALOG (ENGLISH + FIXED TID LOGIC) ---
+# --- DIALOGUE AJOUT / DUPLICATION ---
 class AddCardDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, is_duplicate=False, source_name=""):
         super().__init__(parent)
-        self.setWindowTitle("Add New Card")
+        title = f"Duplicate '{source_name}'" if is_duplicate else "Add New Card"
+        self.setWindowTitle(title)
         self.resize(500, 400)
         self.layout = QVBoxLayout(self)
+        self.is_duplicate = is_duplicate
         
         form = QFormLayout()
         
         self.type_combo = QComboBox()
         self.type_combo.addItems(["Characters", "Buildings", "Spells", "Projectiles"])
         self.type_combo.currentIndexChanged.connect(self.on_type_change)
+        if is_duplicate:
+            self.type_combo.setEnabled(False) # On ne peut pas changer de type en dupliquant
         
         self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("Ex: MegaKnight")
+        self.name_edit.setPlaceholderText("Internal Name (Ex: SuperKnight)")
         self.name_edit.textChanged.connect(self.auto_fill)
         
         self.tid_edit = QLineEdit()
-        self.tid_edit.setPlaceholderText("Ex: TID_SPELL_MEGA_KNIGHT")
+        self.tid_edit.setPlaceholderText("TID_SPELL_SUPER_KNIGHT")
         
         self.game_name_edit = QLineEdit()
-        self.game_name_edit.setPlaceholderText("Ex: Mega Knight")
+        self.game_name_edit.setPlaceholderText("In-Game Name (Ex: Super Knight)")
         
         self.desc_edit = QTextEdit()
-        self.desc_edit.setPlaceholderText("Card description...")
+        self.desc_edit.setPlaceholderText("Description...")
         self.desc_edit.setMaximumHeight(80)
         
         self.info_lbl = QLabel("")
         self.info_lbl.setStyleSheet("color: orange;")
 
         form.addRow("Type:", self.type_combo)
-        form.addRow("Internal Name (ID):", self.name_edit)
-        form.addRow("Text Key (TID):", self.tid_edit)
-        form.addRow("In-Game Name:", self.game_name_edit)
-        form.addRow("Description:", self.desc_edit)
+        form.addRow("New Internal ID:", self.name_edit)
+        form.addRow("New Text Key (TID):", self.tid_edit)
+        form.addRow("New Name:", self.game_name_edit)
+        form.addRow("New Description:", self.desc_edit)
         
         self.layout.addLayout(form)
         self.layout.addWidget(self.info_lbl)
@@ -147,23 +151,16 @@ class AddCardDialog(QDialog):
         if t == "Projectiles":
             self.desc_edit.setEnabled(False)
             self.desc_edit.setPlaceholderText("No description for projectiles.")
-            self.info_lbl.setText("⚠️ Note: Projectiles have no mana cost and no description.")
         else:
             self.desc_edit.setEnabled(True)
-            self.desc_edit.setPlaceholderText("Card description...")
-            self.info_lbl.setText("")
 
     def auto_fill(self, text):
         if not text: return
         clean = text.upper().replace(" ", "_")
-        
-        # --- FIXED TID LOGIC ---
         if self.type_combo.currentText() == "Projectiles":
              self.tid_edit.setText(f"{clean}") 
         else:
              self.tid_edit.setText(f"TID_SPELL_{clean}")
-        
-        # CamelCase Space Splitter
         s1 = re.sub('(.)([A-Z][a-z]+)', r'\1 \2', text)
         self.game_name_edit.setText(s1)
 
@@ -176,7 +173,7 @@ class AddCardDialog(QDialog):
             "desc": self.desc_edit.toPlainText()
         }
 
-# --- DATA MANAGER (WITH DELETE FUNCTION) ---
+# --- DATA MANAGER ---
 class DataManager:
     def __init__(self, base_path):
         self.csv_path = base_path
@@ -232,97 +229,99 @@ class DataManager:
             if lang in df.columns:
                 df.at[idx[0], lang] = text
 
-    def add_new_card(self, card_data):
+    def _generate_tid_info(self, tid, desc):
+        if not desc: return ""
+        if "TID_SPELL_" in tid: return tid.replace("TID_SPELL_", "TID_SPELL_INFO_")
+        if "TID_" in tid: return tid.replace("TID_", "TID_INFO_")
+        return f"TID_INFO_{tid}"
+
+    def add_card_common(self, card_data, copy_source=None):
+        """ Handles both Add and Duplicate logic """
         cat = card_data['type']
         name = card_data['name']
         tid = card_data['tid']
         game_name = card_data['game_name']
         desc = card_data['desc']
         if not name: return False
+        
+        tid_info = self._generate_tid_info(tid, desc)
 
-        # --- TID GENERATION FIX ---
-        # If TID matches standard format "TID_SPELL_XXX", Info should be "TID_SPELL_INFO_XXX"
-        tid_info = ""
-        if desc:
-            if "TID_SPELL_" in tid:
-                tid_info = tid.replace("TID_SPELL_", "TID_SPELL_INFO_")
-            elif "TID_" in tid:
-                tid_info = tid.replace("TID_", "TID_INFO_")
-            else:
-                tid_info = f"TID_INFO_{tid}"
-
-        # 1. Texts
+        # 1. TEXTS (Always new, logic is separate)
         if "texts.csv" in self.dfs:
             text_df = self.dfs["texts.csv"]
             new_row_text = pd.Series([tid] + [game_name]*(len(text_df.columns)-1), index=text_df.columns)
             self.dfs["texts.csv"] = pd.concat([text_df, new_row_text.to_frame().T], ignore_index=True)
-            
             if desc:
                 new_row_desc = pd.Series([tid_info] + [desc]*(len(text_df.columns)-1), index=text_df.columns)
                 self.dfs["texts.csv"] = pd.concat([self.dfs["texts.csv"], new_row_desc.to_frame().T], ignore_index=True)
 
-        # 2. Logic File
         files = self.file_map[cat]
+
+        # 2. LOGIC FILE (Character/Building stats)
         if files['logic'] and files['logic'] in self.dfs:
-            logic_df = self.dfs[files['logic']]
-            new_logic = pd.Series(index=logic_df.columns, dtype='object')
-            new_logic['Name'] = name
-            if 'TID' in new_logic.index: new_logic['TID'] = tid
-            self.dfs[files['logic']] = pd.concat([logic_df, new_logic.to_frame().T], ignore_index=True)
-
-        # 3. Spell File
-        if files['spell'] and files['spell'] in self.dfs:
-            spell_df = self.dfs[files['spell']]
-            new_spell = pd.Series(index=spell_df.columns, dtype='object')
-            new_spell['Name'] = name
-            if 'TID' in new_spell.index: new_spell['TID'] = tid
-            if desc and 'TID_INFO' in new_spell.index: new_spell['TID_INFO'] = tid_info
-            self.dfs[files['spell']] = pd.concat([spell_df, new_spell.to_frame().T], ignore_index=True)
+            df = self.dfs[files['logic']]
+            new_row = pd.Series(index=df.columns, dtype='object') # Default empty
             
-        return True
+            # COPY LOGIC
+            if copy_source:
+                source_rows = df[df['Name'] == copy_source]
+                if not source_rows.empty:
+                    new_row = source_rows.iloc[0].copy() # Copy stats
+            
+            # Overwrite identity
+            new_row['Name'] = name
+            if 'TID' in new_row.index: new_row['TID'] = tid
+            
+            self.dfs[files['logic']] = pd.concat([df, new_row.to_frame().T], ignore_index=True)
 
-    def delete_card(self, category, card_name):
-        """ Supprime la carte de la mémoire (Logic + Spell + Text) """
-        files = self.file_map.get(category)
-        if not files: return False
-        
-        tids_to_remove = []
-
-        # 1. Delete from Spell File
+        # 3. SPELL FILE (Cost, Rarity, etc)
         if files['spell'] and files['spell'] in self.dfs:
             df = self.dfs[files['spell']]
-            # Find rows
-            mask = df['Name'] == card_name
-            rows = df[mask]
+            new_row = pd.Series(index=df.columns, dtype='object')
             
-            # Capture TIDs before deleting
-            for _, row in rows.iterrows():
+            if copy_source:
+                source_rows = df[df['Name'] == copy_source]
+                if not source_rows.empty:
+                    new_row = source_rows.iloc[0].copy()
+            
+            new_row['Name'] = name
+            if 'TID' in new_row.index: new_row['TID'] = tid
+            if desc and 'TID_INFO' in new_row.index: new_row['TID_INFO'] = tid_info
+            
+            self.dfs[files['spell']] = pd.concat([df, new_row.to_frame().T], ignore_index=True)
+
+        return True
+
+    def add_new_card(self, data):
+        return self.add_card_common(data, copy_source=None)
+
+    def duplicate_card(self, source_name, data):
+        return self.add_card_common(data, copy_source=source_name)
+
+    def delete_card(self, category, card_name):
+        files = self.file_map.get(category)
+        if not files: return False
+        tids_to_remove = []
+
+        if files['spell'] and files['spell'] in self.dfs:
+            df = self.dfs[files['spell']]
+            mask = df['Name'] == card_name
+            for _, row in df[mask].iterrows():
                 if 'TID' in row and pd.notnull(row['TID']): tids_to_remove.append(row['TID'])
                 if 'TID_INFO' in row and pd.notnull(row['TID_INFO']): tids_to_remove.append(row['TID_INFO'])
-            
-            # Delete
             self.dfs[files['spell']] = df[~mask].reset_index(drop=True)
 
-        # 2. Delete from Logic File
         if files['logic'] and files['logic'] in self.dfs:
             df = self.dfs[files['logic']]
             mask = df['Name'] == card_name
-            
-            # If Projectile (no spell file), capture TID here if exists
             if category == "Projectiles":
-                rows = df[mask]
-                for _, row in rows.iterrows():
-                     # Projectiles don't usually have TID column, but just in case
+                for _, row in df[mask].iterrows():
                      if 'TID' in row and pd.notnull(row['TID']): tids_to_remove.append(row['TID'])
-
             self.dfs[files['logic']] = df[~mask].reset_index(drop=True)
 
-        # 3. Delete from Texts
         if "texts.csv" in self.dfs and tids_to_remove:
             df = self.dfs["texts.csv"]
-            # Column 0 is usually the TID key
-            key_col = df.columns[0]
-            self.dfs["texts.csv"] = df[~df[key_col].isin(tids_to_remove)].reset_index(drop=True)
+            self.dfs["texts.csv"] = df[~df[df.columns[0]].isin(tids_to_remove)].reset_index(drop=True)
             
         return True
 
@@ -347,7 +346,6 @@ class DataManager:
                 data['logic'] = rows.iloc[0].to_dict()
                 data['logic_idx'] = rows.index[0]
                 data['logic_file'] = files['logic']
-
         return data
 
     def update_cell(self, filename, row_idx, col_name, value):
@@ -358,11 +356,9 @@ class DataManager:
         for filename, df in self.dfs.items():
             path = os.path.join(self.csv_path, filename)
             type_list = self.types[filename]
-            
             with open(path, 'w', newline='', encoding='utf-8') as f:
                 f.write(",".join([f'"{c}"' for c in df.columns]) + "\n")
                 f.write(",".join([f'"{t}"' for t in type_list]) + "\n")
-                
                 for _, row in df.iterrows():
                     line = []
                     for i, val in enumerate(row):
@@ -380,11 +376,11 @@ class DataManager:
                                 line.append(f'"{s_val}"')
                     f.write(",".join(line) + "\n")
 
-# --- MAIN INTERFACE (TRANSLATED) ---
+# --- MAIN INTERFACE ---
 class CRCardEditor(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Nox CR Creator v2.4 (English)")
+        self.setWindowTitle("Nox Card Editor v1.1")
         self.resize(1400, 900)
         
         base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -413,80 +409,123 @@ class CRCardEditor(QMainWindow):
         self.cat_combo.currentIndexChanged.connect(self.change_category)
         
         self.search_bar = QLineEdit()
-        self.search_bar.setPlaceholderText("🔍 Search...")
+        self.search_bar.setPlaceholderText("🔍 Find Card...")
         self.search_bar.textChanged.connect(self.filter_list)
         
         self.card_list = QListWidget()
         self.card_list.currentItemChanged.connect(self.on_card_selected)
         
-        # Buttons
-        btn_layout = QVBoxLayout() # Vertical for more buttons
-        
+        # Action Buttons
         row_add = QHBoxLayout()
-        add_btn = QPushButton("➕ Add Card")
-        add_btn.setStyleSheet("background-color: #1976D2; color: white; font-weight: bold; padding: 8px;")
+        add_btn = QPushButton("➕ Add")
+        add_btn.setStyleSheet("background-color: #1976D2; color: white;")
         add_btn.clicked.connect(self.open_add_dialog)
+        
+        self.dup_btn = QPushButton("Duplicate")
+        self.dup_btn.setStyleSheet("background-color: #0288D1; color: white;")
+        self.dup_btn.setEnabled(False)
+        self.dup_btn.clicked.connect(self.duplicate_current)
+        
         row_add.addWidget(add_btn)
-        
-        # --- REMOVE BUTTON ---
+        row_add.addWidget(self.dup_btn)
+
         self.del_btn = QPushButton("🗑️ Remove Card")
-        self.del_btn.setStyleSheet("background-color: #d32f2f; color: white; font-weight: bold; padding: 8px;")
-        self.del_btn.setEnabled(False) # Disabled until selection
+        self.del_btn.setStyleSheet("background-color: #d32f2f; color: white;")
+        self.del_btn.setEnabled(False)
         self.del_btn.clicked.connect(self.delete_current_card)
-        row_add.addWidget(self.del_btn)
         
-        save_btn = QPushButton("💾 Save All CSVs")
+        save_btn = QPushButton("💾 Save All")
         save_btn.setStyleSheet("background-color: #388E3C; color: white; font-weight: bold; padding: 12px;")
         save_btn.clicked.connect(self.save_data)
-        
-        btn_layout.addLayout(row_add)
-        btn_layout.addWidget(save_btn)
         
         side_layout.addWidget(QLabel("Category:"))
         side_layout.addWidget(self.cat_combo)
         side_layout.addWidget(self.search_bar)
         side_layout.addWidget(self.card_list)
-        side_layout.addLayout(btn_layout)
+        side_layout.addLayout(row_add)
+        side_layout.addWidget(self.del_btn)
+        side_layout.addWidget(save_btn)
         
         layout.addWidget(side_panel)
 
-        # Tabs
-        self.main_tabs = QTabWidget()
+        # Tabs area
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
         
-        self.tab_overview = QWidget()
-        self.ui_overview = self.setup_overview_tab()
-        self.main_tabs.addTab(self.tab_overview, "📝 Info & Texts")
+        # --- NEW: ATTRIBUTE SEARCH BAR ---
+        self.attr_search_bar = QLineEdit()
+        self.attr_search_bar.setPlaceholderText("🔍 Search Attribute in Combat/Spawn tabs...")
+        self.attr_search_bar.setStyleSheet("padding: 8px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px;")
+        self.attr_search_bar.textChanged.connect(self.filter_attributes)
+        
+        right_layout.addWidget(self.attr_search_bar)
 
-        self.tab_combat = QScrollArea()
-        self.tab_combat.setWidgetResizable(True)
-        self.ui_combat = QWidget()
-        self.tab_combat.setWidget(self.ui_combat)
+        self.main_tabs = QTabWidget()
+        self.tab_overview = QWidget(); self.ui_overview = self.setup_overview_tab(); self.main_tabs.addTab(self.tab_overview, "📝 Info & Texts")
+        
+        self.tab_combat = QScrollArea(); self.tab_combat.setWidgetResizable(True)
+        self.ui_combat = QWidget(); self.tab_combat.setWidget(self.ui_combat)
         self.combat_layout = QVBoxLayout(self.ui_combat)
         self.main_tabs.addTab(self.tab_combat, "⚔️ Combat")
         
-        self.tab_deploy = QScrollArea()
-        self.tab_deploy.setWidgetResizable(True)
-        self.ui_deploy = QWidget()
-        self.tab_deploy.setWidget(self.ui_deploy)
+        self.tab_deploy = QScrollArea(); self.tab_deploy.setWidgetResizable(True)
+        self.ui_deploy = QWidget(); self.tab_deploy.setWidget(self.ui_deploy)
         self.deploy_layout = QVBoxLayout(self.ui_deploy)
         self.main_tabs.addTab(self.tab_deploy, "✨ Spawn/Death")
 
-        self.tab_image = QWidget()
-        img_layout = QVBoxLayout(self.tab_image)
-        self.cropper = ImageCropper()
-        ctrl_img = QHBoxLayout()
-        btn_load = QPushButton("Load Image"); btn_load.clicked.connect(self.import_img)
-        btn_save_icon = QPushButton("Export Icon"); btn_save_icon.clicked.connect(self.export_img)
+        self.tab_image = QWidget(); img_layout = QVBoxLayout(self.tab_image); self.cropper = ImageCropper()
+        ctrl_img = QHBoxLayout(); btn_load = QPushButton("Load"); btn_load.clicked.connect(self.import_img)
+        btn_save_icon = QPushButton("Export"); btn_save_icon.clicked.connect(self.export_img)
         ctrl_img.addWidget(btn_load); ctrl_img.addWidget(btn_save_icon)
-        img_layout.addWidget(QLabel("Drag & Drop | Scroll Zoom | Resize Yellow Corner"))
-        img_layout.addWidget(self.cropper)
-        img_layout.addLayout(ctrl_img)
+        img_layout.addWidget(QLabel("Icon Editor")); img_layout.addWidget(self.cropper); img_layout.addLayout(ctrl_img)
         self.main_tabs.addTab(self.tab_image, "🖼️ Icon")
         
-        layout.addWidget(self.main_tabs)
+        right_layout.addWidget(self.main_tabs)
+        layout.addWidget(right_panel)
+
+    # --- SEARCH FILTER FUNCTION ---
+    def filter_attributes(self, text):
+        text = text.lower()
+        # On cherche dans les deux onglets dynamiques
+        for layout in [self.combat_layout, self.deploy_layout]:
+            for i in range(layout.count()):
+                group_box = layout.itemAt(i).widget()
+                if isinstance(group_box, QGroupBox):
+                    form = group_box.layout()
+                    group_visible = False
+                    if isinstance(form, QFormLayout):
+                        for j in range(form.rowCount()):
+                            item = form.itemAt(j, QFormLayout.LabelRole)
+                            field = form.itemAt(j, QFormLayout.FieldRole)
+                            if item and item.widget():
+                                label_text = item.widget().text().lower()
+                                # Si le texte matche, on affiche la ligne
+                                is_match = text in label_text
+                                form.setRowVisible(j, is_match)
+                                if is_match: group_visible = True
+                    
+                    # Si aucun enfant n'est visible, on cache le groupe entier
+                    group_box.setVisible(group_visible)
+
+    # --- DUPLICATE FUNCTION ---
+    def duplicate_current(self):
+        if not self.current_card_name: return
+        dlg = AddCardDialog(self, is_duplicate=True, source_name=self.current_card_name)
+        # Pre-set the correct type in the dialog based on current view
+        idx = dlg.type_combo.findText(self.current_cat)
+        if idx >= 0: dlg.type_combo.setCurrentIndex(idx)
+        
+        if dlg.exec():
+            data = dlg.get_data()
+            # Perform Duplicate
+            if self.db.duplicate_card(self.current_card_name, data):
+                self.populate_list()
+                items = self.card_list.findItems(data['name'], Qt.MatchExactly)
+                if items: self.card_list.setCurrentItem(items[0])
+                QMessageBox.information(self, "Success", f"Card '{self.current_card_name}' duplicated to '{data['name']}'!")
 
     def open_add_dialog(self):
-        dlg = AddCardDialog(self)
+        dlg = AddCardDialog(self, is_duplicate=False)
         if dlg.exec():
             data = dlg.get_data()
             if self.db.add_new_card(data):
@@ -495,64 +534,39 @@ class CRCardEditor(QMainWindow):
                 self.populate_list()
                 items = self.card_list.findItems(data['name'], Qt.MatchExactly)
                 if items: self.card_list.setCurrentItem(items[0])
-                QMessageBox.information(self, "Success", f"Card {data['name']} added!\nDon't forget to SAVE.")
+                QMessageBox.information(self, "Success", "Card added!")
 
     def delete_current_card(self):
         if not self.current_card_name: return
-        
-        reply = QMessageBox.question(self, 'Confirm Delete', 
-                                     f"Are you sure you want to delete '{self.current_card_name}'?\nThis will remove it from Logic, Spells and Texts.",
-                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-
+        reply = QMessageBox.question(self, 'Confirm', f"Delete '{self.current_card_name}'?", QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
-            success = self.db.delete_card(self.current_cat, self.current_card_name)
-            if success:
+            if self.db.delete_card(self.current_cat, self.current_card_name):
                 self.populate_list()
                 self.current_card_name = None
+                self.dup_btn.setEnabled(False)
                 self.del_btn.setEnabled(False)
-                # Clear UI
-                self.txt_name_edit.clear()
-                self.txt_desc_edit.clear()
-                # Clear Dynamic Tabs
+                self.txt_name_edit.clear(); self.txt_desc_edit.clear()
                 for layout in [self.combat_layout, self.deploy_layout]:
                     while layout.count(): 
-                        child = layout.takeAt(0)
-                        if child.widget(): child.widget().deleteLater()
-                
-                QMessageBox.information(self, "Deleted", "Card removed from memory.\nClick SAVE to apply changes to files.")
+                        c = layout.takeAt(0)
+                        if c.widget(): c.widget().deleteLater()
+                QMessageBox.information(self, "Deleted", "Card removed.")
 
     def setup_overview_tab(self):
         layout = QVBoxLayout(self.tab_overview)
-        grp_text = QGroupBox("Texts (texts.csv)")
+        grp_text = QGroupBox("Texts")
         form_text = QFormLayout()
-        
-        self.lang_combo = QComboBox()
-        self.lang_combo.addItems(["EN", "FR", "DE", "ES", "IT", "RU", "JP", "KR", "CN"]) 
+        self.lang_combo = QComboBox(); self.lang_combo.addItems(["EN", "FR", "DE", "ES", "IT", "RU", "JP", "KR", "CN"])
         self.lang_combo.currentIndexChanged.connect(self.refresh_texts)
-        
         self.txt_tid_name = QLineEdit(); self.txt_tid_name.setReadOnly(True)
-        self.txt_name_edit = QLineEdit()
-        self.txt_name_edit.textChanged.connect(self.update_text_name)
-        
+        self.txt_name_edit = QLineEdit(); self.txt_name_edit.textChanged.connect(self.update_text_name)
         self.txt_tid_desc = QLineEdit(); self.txt_tid_desc.setReadOnly(True)
-        self.txt_desc_edit = QTextEdit()
-        self.txt_desc_edit.setMaximumHeight(80)
-        self.txt_desc_edit.textChanged.connect(self.update_text_desc)
-        
-        form_text.addRow("Language:", self.lang_combo)
-        form_text.addRow("Name Key:", self.txt_tid_name)
-        form_text.addRow("In-Game Name:", self.txt_name_edit)
-        form_text.addRow("Desc Key:", self.txt_tid_desc)
-        form_text.addRow("Description:", self.txt_desc_edit)
+        self.txt_desc_edit = QTextEdit(); self.txt_desc_edit.setMaximumHeight(80); self.txt_desc_edit.textChanged.connect(self.update_text_desc)
+        form_text.addRow("Lang:", self.lang_combo); form_text.addRow("Key Name:", self.txt_tid_name); form_text.addRow("Value:", self.txt_name_edit)
+        form_text.addRow("Key Desc:", self.txt_tid_desc); form_text.addRow("Value:", self.txt_desc_edit)
         grp_text.setLayout(form_text)
-        
-        grp_meta = QGroupBox("Properties (spells.csv)")
-        self.form_meta = QFormLayout()
-        grp_meta.setLayout(self.form_meta)
-        
-        layout.addWidget(grp_text)
-        layout.addWidget(grp_meta)
-        layout.addStretch()
+        self.form_meta = QFormLayout(); grp_meta = QGroupBox("Properties"); grp_meta.setLayout(self.form_meta)
+        layout.addWidget(grp_text); layout.addWidget(grp_meta); layout.addStretch()
 
     def change_category(self):
         self.current_cat = self.cat_combo.currentText()
@@ -562,7 +576,6 @@ class CRCardEditor(QMainWindow):
         self.card_list.clear()
         target_file = self.db.file_map[self.current_cat]['spell']
         if not target_file: target_file = self.db.file_map[self.current_cat]['logic']
-        
         if target_file and target_file in self.db.dfs:
             names = self.db.dfs[target_file]['Name'].astype(str).tolist()
             self.card_list.addItems(names)
@@ -575,15 +588,18 @@ class CRCardEditor(QMainWindow):
 
     def on_card_selected(self, current, prev):
         if not current: 
+            self.dup_btn.setEnabled(False)
             self.del_btn.setEnabled(False)
             return
-        
+        self.dup_btn.setEnabled(True)
         self.del_btn.setEnabled(True)
         self.current_card_name = current.text()
         self.current_composite = self.db.get_combined_data(self.current_cat, self.current_card_name)
         if not self.current_composite: return
         self.load_overview()
         self.load_dynamic_tabs()
+        # Reset search bar on new selection to show all
+        self.attr_search_bar.clear()
 
     def load_overview(self):
         spell_data = self.current_composite.get('spell', {})
@@ -591,7 +607,6 @@ class CRCardEditor(QMainWindow):
         self.txt_tid_desc.setText(self.db.get_safe_val(spell_data.get('TID_INFO', '')))
         self.refresh_texts() 
         while self.form_meta.count(): self.form_meta.takeAt(0).widget().deleteLater()
-        
         key_meta = ['Rarity', 'ManaCost', 'UnlockArena', 'IconFile']
         if 'spell' in self.current_composite:
             for k in key_meta:
@@ -600,36 +615,27 @@ class CRCardEditor(QMainWindow):
                     col_type = self.db.get_col_type(filename, k)
                     val = self.db.get_safe_val(spell_data[k])
                     if "boolean" in col_type.lower():
-                        w = QCheckBox()
-                        w.setChecked(val.lower() == 'true')
+                        w = QCheckBox(); w.setChecked(val.lower() == 'true')
                         w.toggled.connect(lambda v, c=k: self.update_data('spell', c, str(v).lower()))
                     else:
-                        w = QLineEdit(val)
-                        w.textChanged.connect(lambda v, c=k: self.update_data('spell', c, v))
+                        w = QLineEdit(val); w.textChanged.connect(lambda v, c=k: self.update_data('spell', c, v))
                     self.form_meta.addRow(k, w)
 
     def refresh_texts(self):
         lang = self.lang_combo.currentText()
-        tid_n = self.txt_tid_name.text()
-        tid_d = self.txt_tid_desc.text()
-        self.txt_name_edit.blockSignals(True)
-        self.txt_desc_edit.blockSignals(True)
-        self.txt_name_edit.setText(self.db.get_text(tid_n, lang))
-        self.txt_desc_edit.setText(self.db.get_text(tid_d, lang))
-        self.txt_name_edit.blockSignals(False)
-        self.txt_desc_edit.blockSignals(False)
+        self.txt_name_edit.blockSignals(True); self.txt_desc_edit.blockSignals(True)
+        self.txt_name_edit.setText(self.db.get_text(self.txt_tid_name.text(), lang))
+        self.txt_desc_edit.setText(self.db.get_text(self.txt_tid_desc.text(), lang))
+        self.txt_name_edit.blockSignals(False); self.txt_desc_edit.blockSignals(False)
 
-    def update_text_name(self, txt):
-        self.db.set_text(self.txt_tid_name.text(), txt, self.lang_combo.currentText())
-
-    def update_text_desc(self):
-        self.db.set_text(self.txt_tid_desc.text(), self.txt_desc_edit.toPlainText(), self.lang_combo.currentText())
+    def update_text_name(self, txt): self.db.set_text(self.txt_tid_name.text(), txt, self.lang_combo.currentText())
+    def update_text_desc(self): self.db.set_text(self.txt_tid_desc.text(), self.txt_desc_edit.toPlainText(), self.lang_combo.currentText())
 
     def load_dynamic_tabs(self):
         for layout in [self.combat_layout, self.deploy_layout]:
             while layout.count(): 
-                child = layout.takeAt(0)
-                if child.widget(): child.widget().deleteLater()
+                c = layout.takeAt(0)
+                if c.widget(): c.widget().deleteLater()
 
         if 'logic' not in self.current_composite: return
         logic_data = self.current_composite['logic']
@@ -653,14 +659,11 @@ class CRCardEditor(QMainWindow):
                     processed.append(k)
                     val = self.db.get_safe_val(logic_data[k])
                     col_type = self.db.get_col_type(logic_file, k)
-                    
                     if "boolean" in col_type.lower():
-                        w = QCheckBox()
-                        w.setChecked(val.lower() == 'true')
+                        w = QCheckBox(); w.setChecked(val.lower() == 'true')
                         w.toggled.connect(lambda v, c=k: self.update_data('logic', c, str(v).lower()))
                     else:
-                        w = QLineEdit(val)
-                        w.textChanged.connect(lambda v, c=k: self.update_data('logic', c, v))
+                        w = QLineEdit(val); w.textChanged.connect(lambda v, c=k: self.update_data('logic', c, v))
                     form.addRow(k, w)
                     added = True
             box.setLayout(form)
@@ -675,22 +678,19 @@ class CRCardEditor(QMainWindow):
 
     def update_data(self, source_type, col, val):
         if not self.current_composite or source_type not in self.current_composite: return
-        self.db.update_cell(self.current_composite[f"{source_type}_file"], 
-                            self.current_composite[f"{source_type}_idx"], col, val)
+        self.db.update_cell(self.current_composite[f"{source_type}_file"], self.current_composite[f"{source_type}_idx"], col, val)
 
     def import_img(self):
         p, _ = QFileDialog.getOpenFileName(self, "Image", "", "Images (*.png *.jpg)")
         if p: self.cropper.load_image(p)
-
     def export_img(self):
         img = self.cropper.get_cropped_image()
         if img:
-            p, _ = QFileDialog.getSaveFileName(self, "Save Icon", f"{self.current_card_name or 'icon'}.png", "PNG (*.png)")
+            p, _ = QFileDialog.getSaveFileName(self, "Save", f"{self.current_card_name or 'icon'}.png", "PNG (*.png)")
             if p: img.save(p)
-
     def save_data(self):
         self.db.save_all()
-        QMessageBox.information(self, "Save", "All CSV files have been updated successfully!")
+        QMessageBox.information(self, "Save", "All data saved!")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
