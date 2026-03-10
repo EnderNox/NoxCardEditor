@@ -50,7 +50,8 @@ Create a folder named `csv` in the directory and place your decrypted server's C
 ```
 NoxCardEditor/
 ├── NoxCardEditor.py      <-- Legacy version
-├── NoxCardEditorV2.py    <-- V2 version (Recommended)
+├── NoxCardEditorV2.py    <-- Legacy version
+├── NoxCardEditorV3.py    <-- V3 version (Recommended)
 └── csv/                  <-- Drop your server files here
     ├── buildings.csv
     ├── characters.csv
