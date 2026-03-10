@@ -64,7 +64,7 @@ NoxCardEditor/
 
 4.  **Run the tool**
     ```bash
-    python NoxCardEditorV2.py
+    python NoxCardEditorV3.py
     ```
 ---
 
